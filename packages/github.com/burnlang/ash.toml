@@ -1,0 +1,4 @@
+name = "github.com/burnlang/ash"
+description = "The Burn package manager"
+kind = "app"
+keywords = ["package manager", "tooling"]
