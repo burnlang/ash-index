@@ -1,0 +1,90 @@
+name: Add package
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: add-package-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  add:
+    if: github.event.issue.state == 'open' && (contains(github.event.issue.labels.*.name, 'add-package') || startsWith(github.event.issue.title, 'Add package:'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the package
+        id: check
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_ASSOCIATION: ${{ github.event.issue.author_association }}
+        run: sh scripts/from-issue.sh "$GITHUB_OUTPUT"
+
+      - name: Get the burnt bot token
+        id: bot
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.BURNT_APP_ID }}
+          private-key: ${{ secrets.BURNT_PRIVATE_KEY }}
+
+      - name: Explain what is wrong
+        if: steps.check.outputs.ok != 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          ERRORS: ${{ steps.check.outputs.errors }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          gh label create invalid --color d73a4a --description "The package did not pass the checks" 2>/dev/null || true
+          gh issue edit "$ISSUE" --add-label invalid
+          printf '%s\n\n%s\n\n%s\n' \
+            "The package could not be added yet:" \
+            "$(printf '%s\n' "$ERRORS" | sed 's/^/- /')" \
+            "Fix it, then edit this issue (any change works) to check again." >"$RUNNER_TEMP/comment.md"
+          gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/comment.md"
+
+      - name: Open and merge the pull request
+        if: steps.check.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          APP_SLUG: ${{ steps.bot.outputs.app-slug }}
+          NAME: ${{ steps.check.outputs.name }}
+          KIND: ${{ steps.check.outputs.kind }}
+          FILE: ${{ steps.check.outputs.file }}
+          ACTION: ${{ steps.check.outputs.action }}
+          BRANCH: ${{ steps.check.outputs.branch }}
+          ISSUE: ${{ github.event.issue.number }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          if git diff --quiet -- "$FILE" && git ls-files --error-unmatch "$FILE" >/dev/null 2>&1; then
+            gh issue comment "$ISSUE" --body "$NAME is already listed exactly like this, so there is nothing to change."
+            gh issue close "$ISSUE" --reason "not planned"
+            exit 0
+          fi
+          user_id="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          verb="Add"
+          if [ "$ACTION" = update ]; then verb="Update"; fi
+          git checkout -b "$BRANCH"
+          git add "$FILE"
+          git commit -q -m "$verb $NAME"
+          git push -q --force origin "$BRANCH"
+          gh issue edit "$ISSUE" --remove-label invalid 2>/dev/null || true
+          pr="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')"
+          if [ -z "$pr" ]; then
+            printf '%s\n\n%s\n\nCloses #%s\n' \
+              "$verb the $KIND $NAME, requested by @$AUTHOR." \
+              "The repository was checked: it is a public Burn project whose burn.toml is named $NAME." \
+              "$ISSUE" >"$RUNNER_TEMP/pr.md"
+            gh pr create --head "$BRANCH" --base "${{ github.event.repository.default_branch }}" --title "$verb $NAME" --body-file "$RUNNER_TEMP/pr.md"
+            pr="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')"
+          fi
+          gh pr merge "$pr" --squash --delete-branch --auto || gh pr merge "$pr" --squash --delete-branch
+          gh issue comment "$ISSUE" --body "Checked and added in #$pr. Once it is merged, \`ash search\` finds $NAME, and anyone can install it with \`ash install $NAME\`."

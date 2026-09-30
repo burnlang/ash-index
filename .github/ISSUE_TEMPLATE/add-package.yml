@@ -1,0 +1,33 @@
+name: Add a package
+description: List a Burn package so that ash search finds it
+title: "Add package: "
+labels: ["add-package"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Paste the address of the git repository. A check runs right away: when the repository is a public Burn project whose `burn.toml` is named after that address, the package is added automatically and this issue is closed. If something is missing, the bot replies here; fix it and edit the issue to check again.
+  - type: input
+    id: url
+    attributes:
+      label: Git URL
+      description: The https address of the repository. Its path is the package name.
+      placeholder: https://github.com/you/colors
+    validations:
+      required: true
+  - type: input
+    id: description
+    attributes:
+      label: Description
+      description: One line about what it does. Leave empty to use the description from burn.toml.
+      placeholder: Colored terminal output
+    validations:
+      required: false
+  - type: input
+    id: keywords
+    attributes:
+      label: Keywords
+      description: Words that ash search should match, separated by commas.
+      placeholder: terminal, color
+    validations:
+      required: false
