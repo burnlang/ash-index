@@ -35,4 +35,4 @@ Check entries locally with `sh scripts/check.sh [files...]`.
 
 ## License
 
-[MIT License](LICENSE)
+[GNU General Public License v3.0](LICENSE)
