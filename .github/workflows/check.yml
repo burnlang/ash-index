@@ -10,4 +10,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sh scripts/check.sh
+        with:
+          fetch-depth: 0
+      - name: Check the entries
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            files="$(git diff --name-only --diff-filter=AM "origin/$BASE...HEAD" -- packages)"
+            if [ -z "$files" ]; then
+              echo "no entries changed"
+              exit 0
+            fi
+            printf '%s\n' "$files" | xargs sh scripts/check.sh
+          else
+            sh scripts/check.sh
+          fi
